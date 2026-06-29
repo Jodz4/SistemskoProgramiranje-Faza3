@@ -1,6 +1,8 @@
 using Akka.Actor;
 using YoutubeSentimentServer.Configuration;
+using YoutubeSentimentServer.Endpoints;
 using YoutubeSentimentServer.Infrastructure;
+using YoutubeSentimentServer.Services;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +12,8 @@ builder.Logging.AddConsole();
 builder.Services.Configure<YoutubeOptions>(
     builder.Configuration.GetSection(YoutubeOptions.SectionName));
 
+builder.Services.AddSingleton<ISentimentAnalysisService, RuleBasedSentimentAnalysisService>();
+
 builder.Services.AddYoutubeSentimentAkka(builder.Environment);
 
 WebApplication app = builder.Build();
@@ -18,7 +22,7 @@ app.MapGet("/", () => Results.Ok(new
 {
     message = "Youtube Sentiment Server radi.",
     status = "OK",
-    phase = "Phase 2 - Configuration and Akka Hosting ready"
+    phase = "Phase 3 - Basic Akka actors ready"
 }));
 
 app.MapGet("/health", () => Results.Ok(new
@@ -47,5 +51,7 @@ app.MapGet("/config/youtube", (
         apiKeyConfigured = !string.IsNullOrWhiteSpace(youtubeOptions.ApiKey)
     });
 });
+
+app.MapVideoEndpoints(app.Environment);
 
 app.Run();
