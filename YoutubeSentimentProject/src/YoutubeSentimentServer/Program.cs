@@ -14,7 +14,9 @@ builder.Logging.AddConsole();
 builder.Services.Configure<YoutubeOptions>(
     builder.Configuration.GetSection(YoutubeOptions.SectionName));
 
-builder.Services.AddSingleton<ISentimentAnalysisService, MlNetSentimentAnalysisService>(); builder.Services.AddSingleton<ITextCleaningService, TextCleaningService>();
+builder.Services.AddSingleton<ISentimentAnalysisService, MlNetSentimentAnalysisService>();
+builder.Services.AddSingleton<ITextCleaningService, TextCleaningService>();
+builder.Services.AddSingleton<ICommentFilteringService, CommentFilteringService>();
 
 builder.Services.AddHttpClient<IYoutubeApiClient, YoutubeApiClient>(
     (serviceProvider, httpClient) =>

@@ -7,6 +7,7 @@ using YoutubeSentimentServer.Actors;
 using YoutubeSentimentServer.Configuration;
 using YoutubeSentimentServer.Messages;
 using YoutubeSentimentServer.Models;
+using System.Diagnostics;
 
 namespace YoutubeSentimentServer.Services;
 
@@ -19,22 +20,25 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
     private readonly IRequiredActor<VideoCommentsActor> _commentsActor;
     private readonly IOptionsMonitor<YoutubeOptions> _options;
     private readonly ILogger<YoutubeCommentStreamService> _logger;
+    private readonly ICommentFilteringService _commentFilteringService;
 
     private readonly EventLoopScheduler _scheduler;
     private IDisposable? _subscription;
     private bool _apiKeyWarningLogged;
 
     public YoutubeCommentStreamService(
-        IYoutubeApiClient youtubeApiClient,
-        IRequiredActor<VideoRegistryActor> registryActor,
-        IRequiredActor<VideoCommentsActor> commentsActor,
-        IOptionsMonitor<YoutubeOptions> options,
-        ILogger<YoutubeCommentStreamService> logger)
+    IYoutubeApiClient youtubeApiClient,
+    IRequiredActor<VideoRegistryActor> registryActor,
+    IRequiredActor<VideoCommentsActor> commentsActor,
+    IOptionsMonitor<YoutubeOptions> options,
+    ICommentFilteringService commentFilteringService,
+    ILogger<YoutubeCommentStreamService> logger)
     {
         _youtubeApiClient = youtubeApiClient;
         _registryActor = registryActor;
         _commentsActor = commentsActor;
         _options = options;
+        _commentFilteringService = commentFilteringService;
         _logger = logger;
 
         _scheduler = new EventLoopScheduler(threadStart =>
@@ -100,6 +104,8 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
 
     private async Task PollOnceAsync(CancellationToken cancellationToken)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
         try
         {
             YoutubeOptions options = _options.CurrentValue;
@@ -109,7 +115,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
                 if (!_apiKeyWarningLogged)
                 {
                     _logger.LogWarning(
-                        "YouTube API key nije podesen. Rx.NET polling radi, ali preskace YouTube API pozive.");
+                        "YouTube API key nije podešen. Rx.NET polling radi, ali preskače YouTube API pozive.");
 
                     _apiKeyWarningLogged = true;
                 }
@@ -151,14 +157,21 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogInformation(
-                "Rx.NET polling je otkazan.");
+            _logger.LogInformation("Rx.NET polling je otkazan.");
         }
         catch (Exception exception)
         {
             _logger.LogError(
                 exception,
                 "Greška tokom jednog Rx.NET polling ciklusa.");
+        }
+        finally
+        {
+            stopwatch.Stop();
+
+            _logger.LogInformation(
+                "Rx.NET polling ciklus završen za {ElapsedMilliseconds} ms.",
+                stopwatch.ElapsedMilliseconds);
         }
     }
 
@@ -187,10 +200,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
                 return;
             }
 
-            List<CommentDto> validComments = fetchResult.Comments
-                .Where(comment => !string.IsNullOrWhiteSpace(comment.Text))
-                .Where(comment => !string.IsNullOrWhiteSpace(comment.CommentId))
-                .ToList();
+            IReadOnlyList<CommentDto> validComments = _commentFilteringService.FilterValidComments(fetchResult.Comments);
 
             if (validComments.Count == 0)
             {
