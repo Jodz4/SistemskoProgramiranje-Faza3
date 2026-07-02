@@ -6,14 +6,11 @@ public sealed class CommentFilteringService : ICommentFilteringService
 {
     private const int MinimumCommentLength = 2;
 
-    public IReadOnlyList<CommentDto> FilterValidComments(IReadOnlyList<CommentDto> comments)
+    public bool IsValid(CommentDto comment)
     {
-        return comments
-            .Where(comment => !string.IsNullOrWhiteSpace(comment.CommentId))
-            .Where(comment => !string.IsNullOrWhiteSpace(comment.VideoId))
-            .Where(comment => !string.IsNullOrWhiteSpace(comment.Text))
-            .Where(comment => comment.Text.Trim().Length >= MinimumCommentLength)
-            .DistinctBy(comment => comment.CommentId)
-            .ToList();
+        return !string.IsNullOrWhiteSpace(comment.CommentId)
+            && !string.IsNullOrWhiteSpace(comment.VideoId)
+            && !string.IsNullOrWhiteSpace(comment.Text)
+            && comment.Text.Trim().Length >= MinimumCommentLength;
     }
 }

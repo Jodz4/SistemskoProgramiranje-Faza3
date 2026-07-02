@@ -4,5 +4,5 @@ namespace YoutubeSentimentServer.Services;
 
 public interface ICommentFilteringService
 {
-    IReadOnlyList<CommentDto> FilterValidComments(IReadOnlyList<CommentDto> comments);
+    bool IsValid(CommentDto comment);
 }

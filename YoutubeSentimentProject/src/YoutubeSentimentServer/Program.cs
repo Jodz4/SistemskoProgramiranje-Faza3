@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using YoutubeSentimentServer.Configuration;
 using YoutubeSentimentServer.Endpoints;
 using YoutubeSentimentServer.Infrastructure;
@@ -34,6 +35,43 @@ builder.Services.AddYoutubeSentimentAkka(builder.Environment);
 builder.Services.AddHostedService<YoutubeCommentStreamService>();
 
 WebApplication app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    Stopwatch stopwatch = Stopwatch.StartNew();
+
+    app.Logger.LogInformation(
+        "Primljen HTTP zahtev: {Method} {Path}",
+        context.Request.Method,
+        context.Request.Path);
+
+    try
+    {
+        await next();
+
+        stopwatch.Stop();
+
+        app.Logger.LogInformation(
+            "Zahtev uspesno obradjen: {Method} {Path} -> {StatusCode} ({ElapsedMilliseconds} ms)",
+            context.Request.Method,
+            context.Request.Path,
+            context.Response.StatusCode,
+            stopwatch.ElapsedMilliseconds);
+    }
+    catch (Exception exception)
+    {
+        stopwatch.Stop();
+
+        app.Logger.LogError(
+            exception,
+            "Greska pri obradi zahteva: {Method} {Path} ({ElapsedMilliseconds} ms)",
+            context.Request.Method,
+            context.Request.Path,
+            stopwatch.ElapsedMilliseconds);
+
+        throw;
+    }
+});
 
 app.MapGet("/", () => Results.Ok(new
 {

@@ -1,18 +1,20 @@
 ﻿using Akka.Actor;
 using Akka.Hosting;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using YoutubeSentimentServer.Actors;
 using YoutubeSentimentServer.Configuration;
 using YoutubeSentimentServer.Messages;
 using YoutubeSentimentServer.Models;
-using System.Diagnostics;
 
 namespace YoutubeSentimentServer.Services;
 
 public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
 {
+    private const int MaxCommentTextLength = 2000;
+
     private static readonly TimeSpan ActorTimeout = TimeSpan.FromSeconds(5);
 
     private readonly IYoutubeApiClient _youtubeApiClient;
@@ -27,12 +29,12 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
     private bool _apiKeyWarningLogged;
 
     public YoutubeCommentStreamService(
-    IYoutubeApiClient youtubeApiClient,
-    IRequiredActor<VideoRegistryActor> registryActor,
-    IRequiredActor<VideoCommentsActor> commentsActor,
-    IOptionsMonitor<YoutubeOptions> options,
-    ICommentFilteringService commentFilteringService,
-    ILogger<YoutubeCommentStreamService> logger)
+        IYoutubeApiClient youtubeApiClient,
+        IRequiredActor<VideoRegistryActor> registryActor,
+        IRequiredActor<VideoCommentsActor> commentsActor,
+        IOptionsMonitor<YoutubeOptions> options,
+        ICommentFilteringService commentFilteringService,
+        ILogger<YoutubeCommentStreamService> logger)
     {
         _youtubeApiClient = youtubeApiClient;
         _registryActor = registryActor;
@@ -60,16 +62,25 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
         TimeSpan pollingInterval = TimeSpan.FromSeconds(
             Math.Max(10, options.PollingIntervalSeconds));
 
+        int maxConcurrentVideoRequests = Math.Clamp(
+            options.MaxConcurrentVideoRequests,
+            1,
+            10);
+
         _subscription = Observable
             .Interval(pollingInterval, _scheduler)
             .StartWith(0L)
-            .Select(_ => Observable.FromAsync(PollOnceAsync))
+            .Select(_ => RunPollingCycle(maxConcurrentVideoRequests))
             .Concat()
             .Subscribe(
-                _ =>
+                batch =>
                 {
-                    //PollOnceAsync sve obavlja kroz side-effect:
-                    //API poziv -> filter/mapiranje -> poruka ka aktoru
+                    _commentsActor.ActorRef.Tell(new AddComments(batch.VideoId, batch.Comments));
+
+                    _logger.LogInformation(
+                        "Rx.NET emitovao AddComments poruku ka VideoCommentsActor-u. Video: {VideoId}, komentara: {Count}",
+                        batch.VideoId,
+                        batch.Comments.Count);
                 },
                 error =>
                 {
@@ -79,9 +90,10 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
                 });
 
         _logger.LogInformation(
-            "Rx.NET YouTube comment stream pokrenut. Interval: {IntervalSeconds}s, Scheduler: {Scheduler}",
+            "Rx.NET YouTube comment stream pokrenut. Interval: {IntervalSeconds}s, Scheduler: {Scheduler}, MaxConcurrentVideoRequests: {MaxConcurrent}",
             pollingInterval.TotalSeconds,
-            nameof(EventLoopScheduler));
+            nameof(EventLoopScheduler),
+            maxConcurrentVideoRequests);
 
         return Task.CompletedTask;
     }
@@ -102,10 +114,51 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
         _scheduler.Dispose();
     }
 
-    private async Task PollOnceAsync(CancellationToken cancellationToken)
+    private IObservable<(string VideoId, IReadOnlyList<CommentDto> Comments)> RunPollingCycle(
+        int maxConcurrentVideoRequests)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
+        return Observable
+            .FromAsync(GetTrackedVideoIdsAsync)
+            .SelectMany(videoIds => videoIds.ToObservable())
+            .Select(videoId => FetchAndMapComments(videoId))
+            .Merge(maxConcurrentVideoRequests)
+            .Finally(() =>
+            {
+                stopwatch.Stop();
+
+                _logger.LogInformation(
+                    "Rx.NET polling ciklus zavrsen za {ElapsedMilliseconds} ms.",
+                    stopwatch.ElapsedMilliseconds);
+            });
+    }
+
+    private IObservable<(string VideoId, IReadOnlyList<CommentDto> Comments)> FetchAndMapComments(string videoId)
+    {
+        return Observable
+            .FromAsync(ct => _youtubeApiClient.GetCommentsForVideoAsync(videoId, ct))
+            .Do(result => LogFetchOutcome(videoId, result))
+            .Where(result => result.Success)
+            .SelectMany(result => result.Comments)
+            .Where(comment => _commentFilteringService.IsValid(comment))
+            .Select(NormalizeComment)
+            .ToList()
+            .Select(comments => (videoId, (IReadOnlyList<CommentDto>)comments))
+            .Where(batch => batch.Item2.Count > 0)
+            .Catch<(string, IReadOnlyList<CommentDto>), Exception>(exception =>
+            {
+                _logger.LogError(
+                    exception,
+                    "Greska u Rx pipeline-u za video {VideoId}.",
+                    videoId);
+
+                return Observable.Empty<(string, IReadOnlyList<CommentDto>)>();
+            });
+    }
+
+    private async Task<IReadOnlyList<string>> GetTrackedVideoIdsAsync(CancellationToken cancellationToken)
+    {
         try
         {
             YoutubeOptions options = _options.CurrentValue;
@@ -115,12 +168,12 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
                 if (!_apiKeyWarningLogged)
                 {
                     _logger.LogWarning(
-                        "YouTube API key nije podešen. Rx.NET polling radi, ali preskače YouTube API pozive.");
+                        "YouTube API key nije podesen. Rx.NET polling radi, ali preskace YouTube API pozive.");
 
                     _apiKeyWarningLogged = true;
                 }
 
-                return;
+                return Array.Empty<string>();
             }
 
             IReadOnlyList<VideoStateDto> videos =
@@ -128,102 +181,62 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
                     new GetTrackedVideos(),
                     ActorTimeout);
 
-            List<VideoStateDto> trackedVideos = videos
+            List<string> trackedVideoIds = videos
                 .Where(video => video.IsTracked)
+                .Select(video => video.VideoId)
                 .ToList();
 
-            if (trackedVideos.Count == 0)
+            if (trackedVideoIds.Count == 0)
             {
                 _logger.LogDebug(
                     "Rx.NET polling tick: nema registrovanih video snimaka.");
-
-                return;
             }
 
-            int maxParallelRequests = Math.Clamp(
-                options.MaxConcurrentVideoRequests,
-                1,
-                10);
-
-            using SemaphoreSlim semaphore = new(maxParallelRequests);
-
-            IEnumerable<Task> fetchTasks = trackedVideos.Select(video =>
-                FetchMapAndEmitAsync(
-                    video.VideoId,
-                    semaphore,
-                    cancellationToken));
-
-            await Task.WhenAll(fetchTasks);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogInformation("Rx.NET polling je otkazan.");
+            return trackedVideoIds;
         }
         catch (Exception exception)
         {
             _logger.LogError(
                 exception,
-                "Greška tokom jednog Rx.NET polling ciklusa.");
-        }
-        finally
-        {
-            stopwatch.Stop();
+                "Greska pri dobavljanju registrovanih video snimaka za Rx.NET polling ciklus.");
 
-            _logger.LogInformation(
-                "Rx.NET polling ciklus završen za {ElapsedMilliseconds} ms.",
-                stopwatch.ElapsedMilliseconds);
+            return Array.Empty<string>();
         }
     }
 
-    private async Task FetchMapAndEmitAsync(
-        string videoId,
-        SemaphoreSlim semaphore,
-        CancellationToken cancellationToken)
+    private void LogFetchOutcome(string videoId, YoutubeCommentFetchResult result)
     {
-        await semaphore.WaitAsync(cancellationToken);
-
-        try
+        if (result.Success)
         {
-            YoutubeCommentFetchResult fetchResult =
-                await _youtubeApiClient.GetCommentsForVideoAsync(
-                    videoId,
-                    cancellationToken);
-
-            if (!fetchResult.Success)
-            {
-                _logger.LogWarning(
-                    "Komentari nisu ucitani za video {VideoId}. Status: {StatusCode}. Greška: {Error}",
-                    videoId,
-                    fetchResult.StatusCode,
-                    fetchResult.ErrorMessage);
-
-                return;
-            }
-
-            IReadOnlyList<CommentDto> validComments = _commentFilteringService.FilterValidComments(fetchResult.Comments);
-
-            if (validComments.Count == 0)
-            {
-                _logger.LogInformation(
-                    "YouTube API nije vratio nove validne komentare za video {VideoId}.",
-                    videoId);
-
-                return;
-            }
-
-            AddComments message = new(videoId, validComments);
-
-            _commentsActor.ActorRef.Tell(message);
-
             _logger.LogInformation(
-                "Rx.NET emitovao AddComments poruku ka VideoCommentsActor-u. Video: {VideoId}, komentara: {Count}, stranica: {Pages}",
+                "Rx.NET je preuzeo {Count} komentara za video {VideoId} (stranica: {Pages}).",
+                result.Comments.Count,
                 videoId,
-                validComments.Count,
-                fetchResult.PageCount);
+                result.PageCount);
+
+            return;
         }
-        finally
+
+        _logger.LogWarning(
+            "Komentari nisu ucitani za video {VideoId}. Status: {StatusCode}. Greska: {Error}",
+            videoId,
+            result.StatusCode,
+            result.ErrorMessage);
+    }
+
+    private static CommentDto NormalizeComment(CommentDto comment)
+    {
+        if (comment.Text.Length <= MaxCommentTextLength)
+            return comment;
+
+        return new CommentDto
         {
-            semaphore.Release();
-        }
+            VideoId = comment.VideoId,
+            CommentId = comment.CommentId,
+            Author = comment.Author,
+            Text = comment.Text[..MaxCommentTextLength],
+            PublishedAt = comment.PublishedAt,
+            LikeCount = comment.LikeCount
+        };
     }
 }
