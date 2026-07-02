@@ -4,6 +4,7 @@ using YoutubeSentimentServer.Configuration;
 using YoutubeSentimentServer.Endpoints;
 using YoutubeSentimentServer.Infrastructure;
 using YoutubeSentimentServer.Services;
+using YoutubeSentimentServer.Services.Sentiment;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -13,8 +14,7 @@ builder.Logging.AddConsole();
 builder.Services.Configure<YoutubeOptions>(
     builder.Configuration.GetSection(YoutubeOptions.SectionName));
 
-builder.Services.AddSingleton<ISentimentAnalysisService, RuleBasedSentimentAnalysisService>();
-builder.Services.AddSingleton<ITextCleaningService, TextCleaningService>();
+builder.Services.AddSingleton<ISentimentAnalysisService, MlNetSentimentAnalysisService>(); builder.Services.AddSingleton<ITextCleaningService, TextCleaningService>();
 
 builder.Services.AddHttpClient<IYoutubeApiClient, YoutubeApiClient>(
     (serviceProvider, httpClient) =>
