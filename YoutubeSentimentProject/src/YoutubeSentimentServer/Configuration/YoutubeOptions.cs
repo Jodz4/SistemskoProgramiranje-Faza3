@@ -11,4 +11,8 @@ public sealed class YoutubeOptions
     public int MaxResultsPerRequest { get; set; } = 100;
 
     public int MaxPagesPerVideo { get; set; } = 3;
+
+    public int RequestTimeoutSeconds { get; set; } = 20;
+
+    public int MaxConcurrentVideoRequests { get; set; } = 3;
 }
