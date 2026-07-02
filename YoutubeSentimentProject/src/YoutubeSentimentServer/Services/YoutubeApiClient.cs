@@ -59,7 +59,11 @@ public sealed class YoutubeApiClient : IYoutubeApiClient
                     nextPageToken);
 
                 using HttpResponseMessage response =
-                    await _httpClient.GetAsync(requestUri, cancellationToken);
+                    await SendWithRetryAsync(
+                        requestUri,
+                        videoId,
+                        options,
+                        cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -244,5 +248,80 @@ public sealed class YoutubeApiClient : IYoutubeApiClient
         }
 
         return null;
+    }
+
+    private async Task<HttpResponseMessage> SendWithRetryAsync(
+    string requestUri,
+    string videoId,
+    YoutubeOptions options,
+    CancellationToken cancellationToken)
+    {
+        int maxAttempts = Math.Clamp(options.RetryAttempts, 1, 5);
+        int baseDelayMs = Math.Clamp(options.RetryBaseDelayMilliseconds, 250, 10000);
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                HttpResponseMessage response =
+                    await _httpClient.GetAsync(requestUri, cancellationToken);
+
+                if (!IsTransientStatusCode(response.StatusCode) || attempt == maxAttempts)
+                    return response;
+
+                int delayMs = baseDelayMs * attempt;
+
+                _logger.LogWarning(
+                    "Privremena YouTube API greška za video {VideoId}. Status: {StatusCode}. Pokušaj {Attempt}/{MaxAttempts}. Čekam {DelayMs} ms.",
+                    videoId,
+                    response.StatusCode,
+                    attempt,
+                    maxAttempts,
+                    delayMs);
+
+                response.Dispose();
+
+                await Task.Delay(delayMs, cancellationToken);
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < maxAttempts)
+            {
+                int delayMs = baseDelayMs * attempt;
+
+                _logger.LogWarning(
+                    "Timeout pri YouTube API pozivu za video {VideoId}. Pokušaj {Attempt}/{MaxAttempts}. Čekam {DelayMs} ms.",
+                    videoId,
+                    attempt,
+                    maxAttempts,
+                    delayMs);
+
+                await Task.Delay(delayMs, cancellationToken);
+            }
+            catch (HttpRequestException exception) when (attempt < maxAttempts)
+            {
+                int delayMs = baseDelayMs * attempt;
+
+                _logger.LogWarning(
+                    exception,
+                    "HTTP greška pri YouTube API pozivu za video {VideoId}. Pokušaj {Attempt}/{MaxAttempts}. Čekam {DelayMs} ms.",
+                    videoId,
+                    attempt,
+                    maxAttempts,
+                    delayMs);
+
+                await Task.Delay(delayMs, cancellationToken);
+            }
+        }
+
+        throw new HttpRequestException(
+            $"YouTube API poziv nije uspeo nakon {maxAttempts} pokušaja.");
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode)
+    {
+        return statusCode == HttpStatusCode.TooManyRequests ||
+               statusCode == HttpStatusCode.InternalServerError ||
+               statusCode == HttpStatusCode.BadGateway ||
+               statusCode == HttpStatusCode.ServiceUnavailable ||
+               statusCode == HttpStatusCode.GatewayTimeout;
     }
 }

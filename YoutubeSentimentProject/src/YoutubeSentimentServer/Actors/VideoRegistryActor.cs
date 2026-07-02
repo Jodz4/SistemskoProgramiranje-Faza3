@@ -14,16 +14,6 @@ public sealed class VideoRegistryActor : ReceiveActor
     private readonly IActorRef _sentimentActor;
 
     private readonly Dictionary<string, VideoStateDto> _videos = new();
-
-    /*
-     * SupervisorStrategy ne dodajemo ovde jer ovaj aktor nije roditelj
-     * za VideoCommentsActor i SentimentActor. Ti aktori su top-level aktori
-     * koje kreira ActorSystem u AkkaConfigurationExtensions.
-     *
-     * Pravi SupervisorStrategy cemo dodati kasnije kroz RootSupervisorActor,
-     * gde ce child aktori biti kreirani preko Context.ActorOf(...).
-     */
-
     public VideoRegistryActor(IActorRef commentsActor, IActorRef sentimentActor)
     {
         _commentsActor = commentsActor;

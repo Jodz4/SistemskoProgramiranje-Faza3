@@ -39,7 +39,7 @@ app.MapGet("/", () => Results.Ok(new
 {
     message = "Youtube Sentiment Server radi.",
     status = "OK",
-    phase = "Phase 4 - Rx.NET YouTube stream ready"
+    phase = "Phase 7 - Retry and resilient YouTube stream"
 }));
 
 app.MapGet("/health", () => Results.Ok(new
@@ -67,7 +67,9 @@ app.MapGet("/config/youtube", (
         maxPagesPerVideo = youtubeOptions.MaxPagesPerVideo,
         requestTimeoutSeconds = youtubeOptions.RequestTimeoutSeconds,
         maxConcurrentVideoRequests = youtubeOptions.MaxConcurrentVideoRequests,
-        apiKeyConfigured = !string.IsNullOrWhiteSpace(youtubeOptions.ApiKey)
+        apiKeyConfigured = !string.IsNullOrWhiteSpace(youtubeOptions.ApiKey),
+        retryAttempts = youtubeOptions.RetryAttempts,
+        retryBaseDelayMilliseconds = youtubeOptions.RetryBaseDelayMilliseconds,
     });
 });
 

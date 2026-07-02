@@ -15,4 +15,8 @@ public sealed class YoutubeOptions
     public int RequestTimeoutSeconds { get; set; } = 20;
 
     public int MaxConcurrentVideoRequests { get; set; } = 3;
+
+    public int RetryAttempts { get; set; } = 3;
+
+    public int RetryBaseDelayMilliseconds { get; set; } = 1000;
 }
