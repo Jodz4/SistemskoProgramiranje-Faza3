@@ -46,12 +46,16 @@ public sealed class MlNetSentimentAnalysisService : ISentimentAnalysisService
             Text = text
         });
 
-        if (prediction.Probability >= 0.60f)
-            return prediction.PredictedLabel
-                ? SentimentLabel.Positive
-                : SentimentLabel.Negative;
+        float confidence = prediction.PredictedLabel
+            ? prediction.Probability
+            : 1f - prediction.Probability;
 
-        return SentimentLabel.Neutral;
+        if (confidence < 0.60f)
+            return SentimentLabel.Neutral;
+
+        return prediction.PredictedLabel
+            ? SentimentLabel.Positive
+            : SentimentLabel.Negative;
     }
 
     private static List<SentimentData> CreateTrainingData()
