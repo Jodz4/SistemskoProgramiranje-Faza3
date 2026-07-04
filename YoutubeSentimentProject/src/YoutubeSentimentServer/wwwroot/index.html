@@ -1,0 +1,277 @@
+﻿<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8" />
+    <title>YouTube Sentiment Server — Test klijent</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 720px;
+            margin: 40px auto;
+            padding: 0 16px;
+            color: #1a1a2e;
+        }
+
+        h1 {
+            font-size: 22px;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        input {
+            flex: 1;
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: 14px;
+            border: none;
+            border-radius: 6px;
+            background: #4f46e5;
+            color: white;
+            cursor: pointer;
+        }
+
+            button:hover {
+                background: #4338ca;
+            }
+
+            button.secondary {
+                background: #6b7280;
+            }
+
+                button.secondary:hover {
+                    background: #4b5563;
+                }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        #status {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 12px;
+            min-height: 18px;
+        }
+
+        .card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+            font-size: 13px;
+        }
+
+        .bar-label {
+            width: 90px;
+        }
+
+        .bar-track {
+            flex: 1;
+            background: #e2e8f0;
+            border-radius: 4px;
+            height: 14px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+        }
+
+        .positive {
+            background: #22c55e;
+        }
+
+        .neutral {
+            background: #94a3b8;
+        }
+
+        .negative {
+            background: #ef4444;
+        }
+
+        .comment {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px 0;
+            font-size: 13px;
+        }
+
+            .comment b {
+                color: #334155;
+            }
+
+        pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>YouTube Sentiment Server — Test klijent</h1>
+
+    <div class="row">
+        <input id="videoId" type="text" placeholder="Unesite YouTube video ID" />
+    </div>
+
+    <div class="actions">
+        <button onclick="registerVideo()">Registruj video</button>
+        <button onclick="getSentiment()">Prikazi sentiment</button>
+        <button onclick="getComments()" class="secondary">Prikazi komentare</button>
+        <button onclick="listVideos()" class="secondary">Lista svih videa</button>
+        <button onclick="shutdownServer()" style="background:#dc2626">Ugasi server</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="output"></div>
+
+    <script>
+  const output = document.getElementById('output');
+  const status = document.getElementById('status');
+
+  function getVideoId() {
+    const id = document.getElementById('videoId').value.trim();
+    if (!id) {
+      status.textContent = 'Unesite video ID pre klika.';
+      throw new Error('no video id');
+    }
+    return id;
+  }
+
+  function setStatus(text) {
+    status.textContent = text;
+  }
+
+  async function callApi(url, method) {
+    setStatus('Saljem zahtev: ' + method + ' ' + url + ' ...');
+    try {
+      const response = await fetch(url, { method });
+      const data = await response.json();
+      setStatus('Odgovor: ' + response.status + ' (' + method + ' ' + url + ')');
+      return data;
+    } catch (error) {
+      setStatus('Greska: ' + error.message);
+      throw error;
+    }
+  }
+
+  async function registerVideo() {
+    const id = getVideoId();
+    const data = await callApi('/videos/' + encodeURIComponent(id), 'POST');
+    output.innerHTML = renderRaw(data);
+  }
+
+  async function listVideos() {
+    const data = await callApi('/videos', 'GET');
+    output.innerHTML = renderRaw(data);
+  }
+
+  async function getComments() {
+    const id = getVideoId();
+    const data = await callApi('/videos/' + encodeURIComponent(id) + '/comments', 'GET');
+    output.innerHTML = renderComments(data);
+  }
+
+  async function getSentiment() {
+    const id = getVideoId();
+    const data = await callApi('/videos/' + encodeURIComponent(id) + '/sentiment', 'GET');
+    output.innerHTML = renderSentiment(data);
+        }
+      
+
+  function renderRaw(response) {
+    return '<pre>' + JSON.stringify(response, null, 2) + '</pre>';
+  }
+
+  function renderSentiment(response) {
+    const d = response.data;
+    if (!d || d.totalComments === 0) {
+      return '<div class="card">Nema jos podataka za ovaj video. Sacekajte jedan polling ciklus (do ~20s posle registracije) i probajte ponovo.</div>'
+        + renderRaw(response);
+    }
+
+    return `
+      <div class="card">
+        <div><b>Video:</b> ${d.videoId}</div>
+        <div><b>Ukupno komentara:</b> ${d.totalComments}</div>
+        <div class="bar-row">
+          <div class="bar-label">Pozitivno</div>
+          <div class="bar-track"><div class="bar-fill positive" style="width:${d.positivePercentage}%"></div></div>
+          <div>${d.positiveCount} (${d.positivePercentage.toFixed(1)}%)</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Neutralno</div>
+          <div class="bar-track"><div class="bar-fill neutral" style="width:${d.neutralPercentage}%"></div></div>
+          <div>${d.neutralCount} (${d.neutralPercentage.toFixed(1)}%)</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Negativno</div>
+          <div class="bar-track"><div class="bar-fill negative" style="width:${d.negativePercentage}%"></div></div>
+          <div>${d.negativeCount} (${d.negativePercentage.toFixed(1)}%)</div>
+        </div>
+      </div>
+    ` + renderRaw(response);
+  }
+
+  function renderComments(response) {
+    const comments = response.data || [];
+    if (comments.length === 0) {
+      return '<div class="card">Nema komentara za prikaz jos.</div>' + renderRaw(response);
+    }
+
+    const list = comments.slice(0, 20).map(c => `
+      <div class="comment"><b>${escapeHtml(c.author)}</b>: ${escapeHtml(c.text)}</div>
+    `).join('');
+
+    return `<div class="card"><i>Prikazano prvih ${Math.min(20, comments.length)} od ${comments.length} komentara.</i>${list}</div>`;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+        }
+
+
+        async function shutdownServer() {
+            const confirmed = confirm('Sigurno zelite da ugasite server? Ovo ce prekinuti Rx.NET tok i sve Akka aktore.');
+            if (!confirmed) return;
+
+            setStatus('saljem zahtev za gasenje...');
+            try {
+                const response = await fetch('/shutdown', { method: 'POST' });
+                const data = await response.json();
+                output.innerHTML = renderRaw(data);
+                setStatus('Server je poslao potvrdu i gasi se. Stranica vise neće moci da komunicira sa njim.');
+            } catch (error) {
+                setStatus('Server se ugasio (konekcija prekinuta)');
+            }
+        }
+    </script>
+
+</body>
+</html>

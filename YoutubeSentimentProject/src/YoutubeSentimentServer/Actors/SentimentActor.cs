@@ -40,7 +40,22 @@ public sealed class SentimentActor : ReceiveActor
 
         foreach (CommentDto comment in message.Comments)
         {
-            SentimentLabel label = _sentimentService.Analyze(comment.Text);
+            SentimentLabel label;
+
+            try
+            {
+                label = _sentimentService.Analyze(comment.Text);
+            }
+            catch (Exception exception)
+            {
+                _log.Warning(
+                    exception,
+                    "Sentiment analiza nije uspela za komentar {0} (video {1}), tretiram kao Neutral.",
+                    comment.CommentId,
+                    message.VideoId);
+
+                label = SentimentLabel.Neutral;
+            }
 
             switch (label)
             {

@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Akka.Hosting;
+using Microsoft.Extensions.Hosting;
 using YoutubeSentimentServer.Actors;
 using YoutubeSentimentServer.Messages;
 using YoutubeSentimentServer.Models;
@@ -41,8 +42,6 @@ public static class VideoEndpoints
 
         if (environment.IsDevelopment())
         {
-            // Privremen endpoint za manuelno testiranje toka aktora.
-            // U finalnoj verziji komentare ce dodavati Rx.NET tok posle poziva YouTube API-ja.
             app.MapPost("/videos/{videoId}/comments/test", async (
                 string videoId,
                 ManualCommentRequest request,
@@ -73,6 +72,15 @@ public static class VideoEndpoints
                 return Results.Ok(ApiResponse<AddCommentResult>.Ok(
                     result,
                     result.Message));
+            });
+
+            app.MapPost("/shutdown", (IHostApplicationLifetime lifetime) =>
+            {
+                lifetime.StopApplication();
+
+                return Results.Ok(ApiResponse<object>.Ok(
+                    new { },
+                    "Server se gasi. Akka ActorSystem i Rx.NET tok ce biti uredno zaustavljeni."));
             });
         }
 
