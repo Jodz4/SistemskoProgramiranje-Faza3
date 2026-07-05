@@ -9,7 +9,6 @@ public sealed record RegisterVideoResult(
 
 public sealed record GetTrackedVideos;
 
-public sealed record IsVideoTracked(string VideoId);
 
 public sealed record VideoTrackedResult(
     string VideoId,

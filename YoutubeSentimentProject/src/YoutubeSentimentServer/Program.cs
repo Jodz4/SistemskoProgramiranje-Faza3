@@ -36,15 +36,6 @@ builder.Services.AddHostedService<YoutubeCommentStreamService>();
 
 WebApplication app = builder.Build();
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
-app.MapGet("/debug/webroot", (IWebHostEnvironment env) => Results.Ok(new
-{
-    webRootPath = env.WebRootPath,
-    contentRootPath = env.ContentRootPath,
-    indexHtmlExists = System.IO.File.Exists(System.IO.Path.Combine(env.WebRootPath ?? "", "index.html"))
-}));
-
 app.Use(async (context, next) =>
 {
     Stopwatch stopwatch = Stopwatch.StartNew();
@@ -82,11 +73,14 @@ app.Use(async (context, next) =>
     }
 });
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/status", () => Results.Ok(new
 {
     message = "Youtube Sentiment Server radi.",
     status = "OK",
-})); ;
+}));
 
 app.MapGet("/health", () => Results.Ok(new
 {

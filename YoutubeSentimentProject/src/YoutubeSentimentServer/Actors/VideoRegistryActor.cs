@@ -21,7 +21,6 @@ public sealed class VideoRegistryActor : ReceiveActor
 
         Receive<RegisterVideo>(HandleRegisterVideo);
         Receive<GetTrackedVideos>(_ => HandleGetTrackedVideos());
-        Receive<IsVideoTracked>(HandleIsVideoTracked);
     }
 
     private void HandleRegisterVideo(RegisterVideo message)
@@ -76,12 +75,4 @@ public sealed class VideoRegistryActor : ReceiveActor
         Sender.Tell(result);
     }
 
-    private void HandleIsVideoTracked(IsVideoTracked message)
-    {
-        string videoId = message.VideoId.Trim();
-
-        Sender.Tell(new VideoTrackedResult(
-            videoId,
-            _videos.ContainsKey(videoId)));
-    }
 }

@@ -26,8 +26,8 @@ public sealed class YoutubeApiClient : IYoutubeApiClient
     }
 
     public async Task<YoutubeCommentFetchResult> GetCommentsForVideoAsync(
-        string videoId,
-        CancellationToken cancellationToken)
+    string videoId,
+    CancellationToken cancellationToken)
     {
         YoutubeOptions options = _options.CurrentValue;
 
@@ -109,6 +109,18 @@ public sealed class YoutubeApiClient : IYoutubeApiClient
                 videoId,
                 comments,
                 pageCount);
+        }
+        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                exception,
+                "Timeout pri citanju komentara za video {VideoId}",
+                videoId);
+
+            return YoutubeCommentFetchResult.Fail(
+                videoId,
+                HttpStatusCode.RequestTimeout,
+                "YouTube API timeout.");
         }
         catch (OperationCanceledException)
         {

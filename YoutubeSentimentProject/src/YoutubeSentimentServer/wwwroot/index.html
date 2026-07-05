@@ -210,7 +210,7 @@
   function renderSentiment(response) {
     const d = response.data;
     if (!d || d.totalComments === 0) {
-      return '<div class="card">Nema jos podataka za ovaj video. Sacekajte jedan polling ciklus (do ~20s posle registracije) i probajte ponovo.</div>'
+        return '<div class="card">Nema jos podataka za ovaj video. Sacekajte jedan polling ciklus posle registracije i probajte ponovo.</div>'
         + renderRaw(response);
     }
 
