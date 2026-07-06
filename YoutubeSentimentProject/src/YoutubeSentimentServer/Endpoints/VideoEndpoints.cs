@@ -110,6 +110,19 @@ public static class VideoEndpoints
                 "Sentiment rezultat za trazeni video."));
         });
 
+        app.MapDelete("/videos/{videoId}", async (
+            string videoId,
+            IRequiredActor<CoordinatorActor> coordinatorActor) =>
+                {
+                    UnregisterVideoResult result = await coordinatorActor.ActorRef.Ask<UnregisterVideoResult>(
+                        new UnregisterVideo(videoId),
+                        ActorTimeout);
+
+                    return Results.Ok(ApiResponse<UnregisterVideoResult>.Ok(
+                        result,
+                        result.Message));
+                 });
+
         return app;
     }
 }
