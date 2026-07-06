@@ -17,9 +17,9 @@ public static class VideoEndpoints
     {
         app.MapPost("/videos/{videoId}", async (
             string videoId,
-            IRequiredActor<VideoRegistryActor> registryActor) =>
+            IRequiredActor<CoordinatorActor> coordinatorActor) =>
         {
-            RegisterVideoResult result = await registryActor.ActorRef.Ask<RegisterVideoResult>(
+            RegisterVideoResult result = await coordinatorActor.ActorRef.Ask<RegisterVideoResult>(
                 new RegisterVideo(videoId),
                 ActorTimeout);
 
@@ -29,9 +29,9 @@ public static class VideoEndpoints
         });
 
         app.MapGet("/videos", async (
-            IRequiredActor<VideoRegistryActor> registryActor) =>
+            IRequiredActor<CoordinatorActor> coordinatorActor) =>
         {
-            IReadOnlyList<VideoStateDto> videos = await registryActor.ActorRef.Ask<IReadOnlyList<VideoStateDto>>(
+            IReadOnlyList<VideoStateDto> videos = await coordinatorActor.ActorRef.Ask<IReadOnlyList<VideoStateDto>>(
                 new GetTrackedVideos(),
                 ActorTimeout);
 
@@ -45,7 +45,7 @@ public static class VideoEndpoints
             app.MapPost("/videos/{videoId}/comments/test", async (
                 string videoId,
                 ManualCommentRequest request,
-                IRequiredActor<VideoCommentsActor> commentsActor) =>
+                IRequiredActor<CoordinatorActor> coordinatorActor) =>
             {
                 if (string.IsNullOrWhiteSpace(request.Text))
                 {
@@ -65,7 +65,7 @@ public static class VideoEndpoints
                     LikeCount = 0
                 };
 
-                AddCommentResult result = await commentsActor.ActorRef.Ask<AddCommentResult>(
+                AddCommentResult result = await coordinatorActor.ActorRef.Ask<AddCommentResult>(
                     new AddComment(comment),
                     ActorTimeout);
 
@@ -86,9 +86,9 @@ public static class VideoEndpoints
 
         app.MapGet("/videos/{videoId}/comments", async (
             string videoId,
-            IRequiredActor<VideoCommentsActor> commentsActor) =>
+            IRequiredActor<CoordinatorActor> coordinatorActor) =>
         {
-            IReadOnlyList<CommentDto> comments = await commentsActor.ActorRef.Ask<IReadOnlyList<CommentDto>>(
+            IReadOnlyList<CommentDto> comments = await coordinatorActor.ActorRef.Ask<IReadOnlyList<CommentDto>>(
                 new GetCommentsForVideo(videoId),
                 ActorTimeout);
 
@@ -99,9 +99,9 @@ public static class VideoEndpoints
 
         app.MapGet("/videos/{videoId}/sentiment", async (
             string videoId,
-            IRequiredActor<SentimentActor> sentimentActor) =>
+            IRequiredActor<CoordinatorActor> coordinatorActor) =>
         {
-            SentimentResultDto result = await sentimentActor.ActorRef.Ask<SentimentResultDto>(
+            SentimentResultDto result = await coordinatorActor.ActorRef.Ask<SentimentResultDto>(
                 new GetVideoSentiment(videoId),
                 ActorTimeout);
 

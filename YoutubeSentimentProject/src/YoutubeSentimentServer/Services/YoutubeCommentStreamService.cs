@@ -18,8 +18,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
     private static readonly TimeSpan ActorTimeout = TimeSpan.FromSeconds(5);
 
     private readonly IYoutubeApiClient _youtubeApiClient;
-    private readonly IRequiredActor<VideoRegistryActor> _registryActor;
-    private readonly IRequiredActor<VideoCommentsActor> _commentsActor;
+    private readonly IRequiredActor<CoordinatorActor> _coordinatorActor;
     private readonly IOptionsMonitor<YoutubeOptions> _options;
     private readonly ILogger<YoutubeCommentStreamService> _logger;
     private readonly ICommentFilteringService _commentFilteringService;
@@ -30,15 +29,13 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
 
     public YoutubeCommentStreamService(
         IYoutubeApiClient youtubeApiClient,
-        IRequiredActor<VideoRegistryActor> registryActor,
-        IRequiredActor<VideoCommentsActor> commentsActor,
+        IRequiredActor<CoordinatorActor> coordinatorActor,
         IOptionsMonitor<YoutubeOptions> options,
         ICommentFilteringService commentFilteringService,
         ILogger<YoutubeCommentStreamService> logger)
     {
         _youtubeApiClient = youtubeApiClient;
-        _registryActor = registryActor;
-        _commentsActor = commentsActor;
+        _coordinatorActor = coordinatorActor;
         _options = options;
         _commentFilteringService = commentFilteringService;
         _logger = logger;
@@ -75,10 +72,10 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
             .Subscribe(
                 batch =>
                 {
-                    _commentsActor.ActorRef.Tell(new AddComments(batch.VideoId, batch.Comments));
+                    _coordinatorActor.ActorRef.Tell(new AddComments(batch.VideoId, batch.Comments));
 
                     _logger.LogInformation(
-                        "Rx.NET emitovao AddComments poruku ka VideoCommentsActor-u. Video: {VideoId}, komentara: {Count}",
+                        "Rx.NET emitovao AddComments poruku ka CoordinatorActor-u. Video: {VideoId}, komentara: {Count}",
                         batch.VideoId,
                         batch.Comments.Count);
                 },
@@ -102,8 +99,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
     {
         _subscription?.Dispose();
 
-        _logger.LogInformation(
-            "Rx.NET YouTube comment stream zaustavljen.");
+        _logger.LogInformation("Rx.NET YouTube comment stream zaustavljen.");
 
         return Task.CompletedTask;
     }
@@ -177,7 +173,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
             }
 
             IReadOnlyList<VideoStateDto> videos =
-                await _registryActor.ActorRef.Ask<IReadOnlyList<VideoStateDto>>(
+                await _coordinatorActor.ActorRef.Ask<IReadOnlyList<VideoStateDto>>(
                     new GetTrackedVideos(),
                     ActorTimeout);
 
@@ -188,8 +184,7 @@ public sealed class YoutubeCommentStreamService : IHostedService, IDisposable
 
             if (trackedVideoIds.Count == 0)
             {
-                _logger.LogDebug(
-                    "Rx.NET polling tick: nema registrovanih video snimaka.");
+                _logger.LogDebug("Rx.NET polling tick: nema registrovanih video snimaka.");
             }
 
             return trackedVideoIds;

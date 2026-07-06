@@ -2,8 +2,6 @@ using YoutubeSentimentServer.Models;
 
 namespace YoutubeSentimentServer.Messages;
 
-public sealed record EnsureVideoCommentsState(string VideoId);
-
 public sealed record AddComment(CommentDto Comment);
 
 public sealed record AddComments(

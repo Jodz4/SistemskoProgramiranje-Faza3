@@ -38,24 +38,12 @@ public static class AkkaConfigurationExtensions
                     ISentimentAnalysisService sentimentService =
                         serviceProvider.GetRequiredService<ISentimentAnalysisService>();
 
-                    IActorRef sentimentActor = actorSystem.ActorOf(
-                        Props.Create(() => new SentimentActor(sentimentService))
-                            .WithDispatcher("sentiment-dispatcher"),
-                        "sentiment-actor");
+                    IActorRef coordinatorActor = actorSystem.ActorOf(
+                        Props.Create(() => new CoordinatorActor(sentimentService))
+                            .WithDispatcher("coordinator-dispatcher"),
+                        "coordinator-actor");
 
-                    IActorRef commentsActor = actorSystem.ActorOf(
-                        Props.Create(() => new VideoCommentsActor(sentimentActor))
-                            .WithDispatcher("comments-dispatcher"),
-                        "video-comments-actor");
-
-                    IActorRef registryActor = actorSystem.ActorOf(
-                        Props.Create(() => new VideoRegistryActor(commentsActor, sentimentActor))
-                            .WithDispatcher("registry-dispatcher"),
-                        "video-registry-actor");
-
-                    actorRegistry.Register<SentimentActor>(sentimentActor);
-                    actorRegistry.Register<VideoCommentsActor>(commentsActor);
-                    actorRegistry.Register<VideoRegistryActor>(registryActor);
+                    actorRegistry.Register<CoordinatorActor>(coordinatorActor);
                 });
         });
 

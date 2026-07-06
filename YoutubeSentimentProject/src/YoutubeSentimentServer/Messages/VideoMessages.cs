@@ -8,8 +8,3 @@ public sealed record RegisterVideoResult(
     string Message);
 
 public sealed record GetTrackedVideos;
-
-
-public sealed record VideoTrackedResult(
-    string VideoId,
-    bool IsTracked);
