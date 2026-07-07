@@ -2,7 +2,6 @@
 using Akka.Event;
 using YoutubeSentimentServer.Messages;
 using YoutubeSentimentServer.Models;
-using YoutubeSentimentServer.Services;
 
 namespace YoutubeSentimentServer.Actors;
 
@@ -10,21 +9,22 @@ public sealed class VideoActor : ReceiveActor
 {
     private readonly ILoggingAdapter _log = Context.GetLogger();
     private readonly string _videoId;
-    private readonly ISentimentAnalysisService _sentimentService;
+    private readonly IActorRef _sentimentAnalysisActor;
 
     private readonly Dictionary<string, CommentDto> _comments = new();
     private SentimentResultDto _sentimentResult;
 
-    public VideoActor(string videoId, ISentimentAnalysisService sentimentService)
+    public VideoActor(string videoId, IActorRef sentimentAnalysisActor)
     {
         _videoId = videoId;
-        _sentimentService = sentimentService;
+        _sentimentAnalysisActor = sentimentAnalysisActor;
         _sentimentResult = CreateEmptyResult(videoId);
 
         Receive<AddComment>(HandleAddComment);
         Receive<AddComments>(HandleAddComments);
         Receive<GetCommentsForVideo>(_ => HandleGetComments());
         Receive<GetVideoSentiment>(_ => HandleGetSentiment());
+        Receive<SentimentComputed>(HandleSentimentComputed);
 
         _log.Info("VideoActor kreiran za video: {0}", videoId);
     }
@@ -37,7 +37,7 @@ public sealed class VideoActor : ReceiveActor
 
         if (added)
         {
-            RecalculateSentiment();
+            RequestSentimentRecalculation();
 
             _log.Info(
                 "Dodat komentar za video {0}. Ukupno komentara: {1}",
@@ -72,7 +72,7 @@ public sealed class VideoActor : ReceiveActor
 
         if (addedCount > 0)
         {
-            RecalculateSentiment();
+            RequestSentimentRecalculation();
 
             _log.Info(
                 "Rx.NET batch dodat za video {0}. Novo: {1}, duplikati: {2}, ukupno: {3}",
@@ -105,8 +105,39 @@ public sealed class VideoActor : ReceiveActor
         Sender.Tell(_sentimentResult);
     }
 
+    private void HandleSentimentComputed(SentimentComputed message)
+    {
+        if (message.VideoId != _videoId)
+        {
+            _log.Warning(
+                "VideoActor {0} je primio sentiment rezultat za pogresan video {1}.",
+                _videoId,
+                message.VideoId);
+
+            return;
+        }
+
+        _sentimentResult = message.Result;
+
+        _log.Info(
+            "VideoActor {0} je sacuvao novi sentiment rezultat. Komentara: {1}",
+            _videoId,
+            _sentimentResult.TotalComments);
+    }
+
     private bool TryAddComment(CommentDto comment)
     {
+        if (comment.VideoId != _videoId)
+        {
+            _log.Warning(
+                "Komentar {0} pripada videu {1}, ali je stigao u VideoActor za video {2}.",
+                comment.CommentId,
+                comment.VideoId,
+                _videoId);
+
+            return false;
+        }
+
         if (_comments.ContainsKey(comment.CommentId))
             return false;
 
@@ -114,66 +145,16 @@ public sealed class VideoActor : ReceiveActor
         return true;
     }
 
-    private void RecalculateSentiment()
+    private void RequestSentimentRecalculation()
     {
-        int positive = 0;
-        int neutral = 0;
-        int negative = 0;
+        IReadOnlyList<CommentDto> snapshot = _comments
+            .Values
+            .OrderBy(comment => comment.PublishedAt)
+            .ToList();
 
-        foreach (CommentDto comment in _comments.Values.OrderBy(c => c.PublishedAt))
-        {
-            SentimentLabel label;
-
-            try
-            {
-                label = _sentimentService.Analyze(comment.Text);
-            }
-            catch (Exception exception)
-            {
-                _log.Warning(
-                    exception,
-                    "Sentiment analiza nije uspela za komentar {0} (video {1}), tretiram kao Neutral.",
-                    comment.CommentId,
-                    _videoId);
-
-                label = SentimentLabel.Neutral;
-            }
-
-            switch (label)
-            {
-                case SentimentLabel.Positive:
-                    positive++;
-                    break;
-                case SentimentLabel.Negative:
-                    negative++;
-                    break;
-                default:
-                    neutral++;
-                    break;
-            }
-        }
-
-        int total = positive + neutral + negative;
-
-        _sentimentResult = new SentimentResultDto
-        {
-            VideoId = _videoId,
-            TotalComments = total,
-            PositiveCount = positive,
-            NeutralCount = neutral,
-            NegativeCount = negative,
-            PositivePercentage = CalculatePercentage(positive, total),
-            NeutralPercentage = CalculatePercentage(neutral, total),
-            NegativePercentage = CalculatePercentage(negative, total),
-            CalculatedAt = DateTime.UtcNow
-        };
-
-        _log.Info(
-            "Sentiment izracunat za video {0}: +{1}, ~{2}, -{3}",
-            _videoId,
-            positive,
-            neutral,
-            negative);
+        _sentimentAnalysisActor.Tell(
+            new AnalyzeSentimentBatch(_videoId, snapshot),
+            Self);
     }
 
     private static SentimentResultDto CreateEmptyResult(string videoId)
@@ -190,13 +171,5 @@ public sealed class VideoActor : ReceiveActor
             NegativePercentage = 0,
             CalculatedAt = DateTime.UtcNow
         };
-    }
-
-    private static float CalculatePercentage(int value, int total)
-    {
-        if (total == 0)
-            return 0;
-
-        return value * 100f / total;
     }
 }

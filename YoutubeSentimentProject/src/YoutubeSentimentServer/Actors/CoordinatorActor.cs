@@ -2,21 +2,20 @@
 using Akka.Event;
 using YoutubeSentimentServer.Messages;
 using YoutubeSentimentServer.Models;
-using YoutubeSentimentServer.Services;
 
 namespace YoutubeSentimentServer.Actors;
 
 public sealed class CoordinatorActor : ReceiveActor
 {
     private readonly ILoggingAdapter _log = Context.GetLogger();
-    private readonly ISentimentAnalysisService _sentimentService;
+    private readonly IActorRef _sentimentAnalysisActor;
 
     private readonly Dictionary<string, IActorRef> _videoActors = new();
     private readonly Dictionary<string, VideoStateDto> _videoStates = new();
 
-    public CoordinatorActor(ISentimentAnalysisService sentimentService)
+    public CoordinatorActor(IActorRef sentimentAnalysisActor)
     {
-        _sentimentService = sentimentService;
+        _sentimentAnalysisActor = sentimentAnalysisActor;
 
         Receive<RegisterVideo>(HandleRegisterVideo);
         Receive<UnregisterVideo>(HandleUnregisterVideo);
@@ -25,7 +24,6 @@ public sealed class CoordinatorActor : ReceiveActor
         Receive<AddComments>(message => ForwardOrLogNotRegistered(message.VideoId, message));
         Receive<GetCommentsForVideo>(message => ForwardOrReplyEmptyComments(message.VideoId, message));
         Receive<GetVideoSentiment>(message => ForwardOrReplyEmptySentiment(message.VideoId, message));
-
     }
 
     private void HandleRegisterVideo(RegisterVideo message)
@@ -38,7 +36,6 @@ public sealed class CoordinatorActor : ReceiveActor
             return;
         }
 
-        // Provera da li vec postoji child actor za ovaj video PRE kreiranja novog.
         if (_videoActors.ContainsKey(videoId))
         {
             Sender.Tell(new RegisterVideoResult(videoId, false, "Video je vec registrovan."));
@@ -46,9 +43,9 @@ public sealed class CoordinatorActor : ReceiveActor
         }
 
         IActorRef videoActor = Context.ActorOf(
-            Props.Create(() => new VideoActor(videoId, _sentimentService))
+            Props.Create(() => new VideoActor(videoId, _sentimentAnalysisActor))
                 .WithDispatcher("video-dispatcher"),
-            $"video-{videoId}");
+            $"video-{videoId}-{Guid.NewGuid():N}");
 
         _videoActors[videoId] = videoActor;
 
@@ -63,6 +60,7 @@ public sealed class CoordinatorActor : ReceiveActor
 
         Sender.Tell(new RegisterVideoResult(videoId, true, "Video je uspesno registrovan."));
     }
+
     private void HandleUnregisterVideo(UnregisterVideo message)
     {
         string videoId = message.VideoId.Trim();
@@ -77,8 +75,6 @@ public sealed class CoordinatorActor : ReceiveActor
             return;
         }
 
-        // PoisonPill (ne Context.Stop direktno) - ceka da VideoActor zavrsi obradu
-        // svih vec zaprimljenih poruka u svom mailbox-u pre nego sto se ugasi.
         videoActor.Tell(PoisonPill.Instance);
 
         _videoActors.Remove(videoId);
@@ -147,7 +143,12 @@ public sealed class CoordinatorActor : ReceiveActor
             return;
         }
 
-        Sender.Tell(new SentimentResultDto
+        Sender.Tell(CreateEmptySentimentResult(videoId));
+    }
+
+    private static SentimentResultDto CreateEmptySentimentResult(string videoId)
+    {
+        return new SentimentResultDto
         {
             VideoId = videoId,
             TotalComments = 0,
@@ -158,6 +159,6 @@ public sealed class CoordinatorActor : ReceiveActor
             NeutralPercentage = 0,
             NegativePercentage = 0,
             CalculatedAt = DateTime.UtcNow
-        });
+        };
     }
 }

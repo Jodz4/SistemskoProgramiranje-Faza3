@@ -30,9 +30,9 @@ builder.Services.AddHttpClient<IYoutubeApiClient, YoutubeApiClient>(
         httpClient.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
     });
 
-builder.Services.AddYoutubeSentimentAkka(builder.Environment);
+builder.Services.AddYoutubeSentimentAkka(builder.Environment); //pokrece se akka sistem
 
-builder.Services.AddHostedService<YoutubeCommentStreamService>();
+builder.Services.AddHostedService<YoutubeCommentStreamService>(); //pokrece Rx.NET background servis
 
 WebApplication app = builder.Build();
 

@@ -38,8 +38,13 @@ public static class AkkaConfigurationExtensions
                     ISentimentAnalysisService sentimentService =
                         serviceProvider.GetRequiredService<ISentimentAnalysisService>();
 
+                    IActorRef sentimentAnalysisActor = actorSystem.ActorOf(
+                        Props.Create(() => new SentimentAnalysisActor(sentimentService))
+                            .WithDispatcher("sentiment-dispatcher"),
+                        "sentiment-analysis-actor");
+
                     IActorRef coordinatorActor = actorSystem.ActorOf(
-                        Props.Create(() => new CoordinatorActor(sentimentService))
+                        Props.Create(() => new CoordinatorActor(sentimentAnalysisActor))
                             .WithDispatcher("coordinator-dispatcher"),
                         "coordinator-actor");
 
