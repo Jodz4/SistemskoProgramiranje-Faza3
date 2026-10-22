@@ -6,7 +6,7 @@ public sealed class YoutubeOptions
 
     public string ApiKey { get; set; } = string.Empty;
 
-    public int PollingIntervalSeconds { get; set; } = 60;
+    public int PollingIntervalSeconds { get; set; } = 20;
 
     public int MaxResultsPerRequest { get; set; } = 100;
 
